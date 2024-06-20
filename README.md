@@ -1,1 +1,1 @@
-# projeto_restaurante
+# projeto_receitas

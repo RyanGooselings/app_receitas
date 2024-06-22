@@ -1,199 +1,121 @@
+import 'package:receita_app/util/device_info.dart';
+import 'package:receita_app/util/tap_recorder.dart';
+import 'package:camera/camera.dart';
+import 'package:device_info_plus/device_info_plus.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:receita_app/cozinhas/brasileira.dart';
-import 'package:receita_app/cozinhas/italiana.dart';
+import 'package:google_generative_ai/google_generative_ai.dart';
+import 'package:provider/provider.dart';
 
-void main() {
-  runApp(MyApp());
-}
+import 'package:receita_app/prompt/promptvm.dart';
+import 'package:receita_app/models/receitasalva.dart';
+import './widgets/firebase_opt.dart';
+import './widgets/router.dart';
+import './widgets/tema.dart';
 
-class MyApp extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Receitas',
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-        visualDensity: VisualDensity.adaptivePlatformDensity,
-      ),
-      initialRoute: '/',
-      routes: {
-        '/': (context) => RecipeHomePage(),
-        '/citaliana': (context) => ReceitasItalianas(),
-        '/cbrasileira': (context) => ReceitasBrasileiras(),
-        //caminhos para outras páginas, abas
-      },
-    );
-  }
-}
+late CameraDescription camera;
+late BaseDeviceInfo deviceInfo;
 
-class RecipeHomePage extends StatefulWidget {
-  @override
-  _RecipeHomePageState createState() => _RecipeHomePageState();
-}
-
-class _RecipeHomePageState extends State<RecipeHomePage> {
-  List<String> recipes = [
-    "Bolo de Chocolate",
-    "Lasanha",
-    "Sopa de Legumes",
-    //outras receitas
-  ];
-
-  List<String> filteredRecipes = [];
-
-  void filterRecipesByCategory(String category) {
-    setState(() {
-      filteredRecipes = recipes.where((recipe) => recipe.contains(category)).toList();
-    });
+void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+  deviceInfo = await DeviceInfo.initialize(DeviceInfoPlugin());
+  if (DeviceInfo.isPhysicalDeviceWithCamera(deviceInfo)) {
+    final cameras = await availableCameras();
+    camera = cameras.first;
   }
 
+  runApp(const MainApp());
+}
+
+class MainApp extends StatefulWidget {
+  const MainApp({super.key});
+
+  @override
+  State<MainApp> createState() => _MainAppState();
+}
+
+class _MainAppState extends State<MainApp> {
+  late GenerativeModel geminiVisionProModel;
+  late GenerativeModel geminiProModel;
   @override
   void initState() {
-    super.initState();
-    filteredRecipes = recipes;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('Receitas'),
-      ),
-      drawer: Drawer(
-        child: ListView(
-          padding: EdgeInsets.zero,
-          children: <Widget>[
-            DrawerHeader(
-              child: Text('Categorias de Cozinha'),
-              decoration: BoxDecoration(
-                color: Colors.blue,
-              ),
-            ),
-            ListTile(
-              title: Text('Italiana'),
-              onTap: () {
-                Navigator.pushNamed(context, '/citaliana');
-              },
-            ),
-            ListTile(
-              title: Text('Brasileira'),
-              onTap: () {
-                Navigator.pushNamed(context, '/cbrasileira');
-              },
-            ),
-            //navegação
-          ],
-        ),
-      ),
-      body: ListView(
-        children: <Widget>[
-          _buildFeaturedRecipeCard('assets/bolo_chocolate.jpg', 'Bolo de Chocolate'),
-          SizedBox(height: 20),
-          _buildOtherRecipes(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildFeaturedRecipeCard(String imagePath, String recipeName) {
-    return Container(
-      margin: EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(10),
-        image: DecorationImage(
-          image: AssetImage(imagePath),
-          fit: BoxFit.cover,
-        ),
-      ),
-      height: 200,
-      child: Center(
-        child: Text(
-          recipeName,
-          style: TextStyle(
-            fontSize: 24,
-            fontWeight: FontWeight.bold,
-            color: Colors.white,
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildOtherRecipes() {
-    List<Widget> recipeCards = [];
-
-    for (int i = 0; i < recipes.length; i += 3) {
-      List<Widget> rowChildren = [];
-      for (int j = i; j < i + 3 && j < recipes.length; j++) {
-        rowChildren.add(Expanded(
-          child: Padding(
-            padding: EdgeInsets.all(8),
-            child: RecipeCard(recipeName: recipes[j]),
-          ),
-        ));
-      }
-      recipeCards.add(Row(
-        children: rowChildren,
-      ));
+    const apiKey =
+        String.fromEnvironment('API_KEY', defaultValue: 'AIzaSyBcwJ37Kbj2Gdn0Yly6iY9NP1qJUPJhh2U');
+    if (apiKey == 'key not found') {
+      throw InvalidApiKey(
+        'Key not found in environment. Please add an API key.',
+      );
     }
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Padding(
-          padding: EdgeInsets.symmetric(horizontal: 20),
-          child: Text(
-            'Outras Receitas',
-            style: TextStyle(
-              fontSize: 20,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ),
-        SizedBox(height: 10),
-        ...recipeCards,
+    geminiVisionProModel = GenerativeModel(
+      model: 'gemini-pro-vision',
+      apiKey: apiKey,
+      generationConfig: GenerationConfig(
+        temperature: 0.4,
+        topK: 32,
+        topP: 1,
+        maxOutputTokens: 4096,
+      ),
+      safetySettings: [
+        SafetySetting(HarmCategory.harassment, HarmBlockThreshold.high),
+        SafetySetting(HarmCategory.hateSpeech, HarmBlockThreshold.high),
       ],
     );
+
+    geminiProModel = GenerativeModel(
+      model: 'gemini-pro',
+      apiKey: const String.fromEnvironment('AIzaSyBcwJ37Kbj2Gdn0Yly6iY9NP1qJUPJhh2U'),
+      generationConfig: GenerationConfig(
+        temperature: 0.4,
+        topK: 32,
+        topP: 1,
+        maxOutputTokens: 4096,
+      ),
+      safetySettings: [
+        SafetySetting(HarmCategory.harassment, HarmBlockThreshold.high),
+        SafetySetting(HarmCategory.hateSpeech, HarmBlockThreshold.high),
+      ],
+    );
+
+    super.initState();
   }
-}
-
-class RecipeCard extends StatelessWidget {
-  final String recipeName;
-
-  RecipeCard({required this.recipeName});
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        border: Border.all(color: Colors.grey),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          AspectRatio(
-            aspectRatio: 1,
-            child: ClipRRect(
-              borderRadius: BorderRadius.vertical(top: Radius.circular(10)),
-              child: Image.asset(
-                'assets/placeholder.jpg',
-                fit: BoxFit.cover,
-              ),
+    final recipesViewModel = SavedRecipesViewModel();
+
+    return TapRecorder(
+      child: MultiProvider(
+        providers: [
+          ChangeNotifierProvider(
+            create: (_) => PromptViewModel(
+              multiModalModel: geminiVisionProModel,
+              textModel: geminiProModel,
             ),
           ),
-          Padding(
-            padding: EdgeInsets.all(8),
-            child: Text(
-              recipeName,
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
-              textAlign: TextAlign.center,
-            ),
+          ChangeNotifierProvider(
+            create: (_) => recipesViewModel,
           ),
         ],
+        child: SafeArea(
+          child: MaterialApp(
+            debugShowCheckedModeBanner: false,
+            theme: MarketplaceTheme.theme,
+            scrollBehavior: const ScrollBehavior().copyWith(
+              dragDevices: {
+                PointerDeviceKind.mouse,
+                PointerDeviceKind.touch,
+                PointerDeviceKind.stylus,
+                PointerDeviceKind.unknown,
+              },
+            ),
+            home: const AdaptiveRouter(),
+          ),
+        ),
       ),
     );
   }

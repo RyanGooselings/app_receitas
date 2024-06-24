@@ -1,122 +1,47 @@
-import 'package:receita_app/util/device_info.dart';
-import 'package:receita_app/util/tap_recorder.dart';
-import 'package:camera/camera.dart';
-import 'package:device_info_plus/device_info_plus.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
-import 'package:google_generative_ai/google_generative_ai.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:provider/provider.dart';
-
-import 'package:receita_app/prompt/promptvm.dart';
-import 'package:receita_app/models/receitasalva.dart';
-import './widgets/firebase_opt.dart';
-import './widgets/router.dart';
-import './widgets/tema.dart';
-
-late CameraDescription camera;
-late BaseDeviceInfo deviceInfo;
+import 'screens/home_screen.dart';
+import 'screens/ingredients_scan_screen.dart';
+import 'providers/favorites_provider.dart';
 
 void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
+  await dotenv.load(fileName: ".env");
+  runApp(
+    ChangeNotifierProvider(
+      create: (context) => FavoritesProvider(), // Crie uma instância de FavoritesProvider
+      child: MyApp(),
+    ),
   );
-  deviceInfo = await DeviceInfo.initialize(DeviceInfoPlugin());
-  if (DeviceInfo.isPhysicalDeviceWithCamera(deviceInfo)) {
-    final cameras = await availableCameras();
-    camera = cameras.first;
-  }
-
-  runApp(const MainApp());
 }
 
-class MainApp extends StatefulWidget {
-  const MainApp({super.key});
 
-  @override
-  State<MainApp> createState() => _MainAppState();
-}
-
-class _MainAppState extends State<MainApp> {
-  late GenerativeModel geminiVisionProModel;
-  late GenerativeModel geminiProModel;
-  @override
-  void initState() {
-    const apiKey =
-        String.fromEnvironment('API_KEY', defaultValue: 'AIzaSyBcwJ37Kbj2Gdn0Yly6iY9NP1qJUPJhh2U');
-    if (apiKey == 'key not found') {
-      throw InvalidApiKey(
-        'Key not found in environment. Please add an API key.',
-      );
-    }
-
-    geminiVisionProModel = GenerativeModel(
-      model: 'gemini-pro-vision',
-      apiKey: apiKey,
-      generationConfig: GenerationConfig(
-        temperature: 0.4,
-        topK: 32,
-        topP: 1,
-        maxOutputTokens: 4096,
-      ),
-      safetySettings: [
-        SafetySetting(HarmCategory.harassment, HarmBlockThreshold.high),
-        SafetySetting(HarmCategory.hateSpeech, HarmBlockThreshold.high),
-      ],
-    );
-
-    geminiProModel = GenerativeModel(
-      model: 'gemini-pro',
-      apiKey: const String.fromEnvironment('AIzaSyBcwJ37Kbj2Gdn0Yly6iY9NP1qJUPJhh2U'),
-      generationConfig: GenerationConfig(
-        temperature: 0.4,
-        topK: 32,
-        topP: 1,
-        maxOutputTokens: 4096,
-      ),
-      safetySettings: [
-        SafetySetting(HarmCategory.harassment, HarmBlockThreshold.high),
-        SafetySetting(HarmCategory.hateSpeech, HarmBlockThreshold.high),
-      ],
-    );
-
-    super.initState();
-  }
-
+class MyApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
-    final recipesViewModel = SavedRecipesViewModel();
-
-    return TapRecorder(
-      child: MultiProvider(
-        providers: [
-          ChangeNotifierProvider(
-            create: (_) => PromptViewModel(
-              multiModalModel: geminiVisionProModel,
-              textModel: geminiProModel,
-            ),
-          ),
-          ChangeNotifierProvider(
-            create: (_) => recipesViewModel,
-          ),
-        ],
-        child: SafeArea(
-          child: MaterialApp(
-            debugShowCheckedModeBanner: false,
-            theme: MarketplaceTheme.theme,
-            scrollBehavior: const ScrollBehavior().copyWith(
-              dragDevices: {
-                PointerDeviceKind.mouse,
-                PointerDeviceKind.touch,
-                PointerDeviceKind.stylus,
-                PointerDeviceKind.unknown,
-              },
-            ),
-            home: const AdaptiveRouter(),
+    return MaterialApp(
+      title: 'Recipe App',
+      theme: ThemeData(
+        primaryColor: Color(0xFFF29F05),
+        colorScheme: ColorScheme.fromSwatch().copyWith(
+          primary: Color(0xFFF29F05),
+          secondary: Color(0xFFF28705),
+        ),
+        scaffoldBackgroundColor: Color(0xFFF2DDB6),
+        appBarTheme: AppBarTheme(
+          backgroundColor: Color(0xFFF29F05),
+        ),
+        elevatedButtonTheme: ElevatedButtonThemeData(
+          style: ElevatedButton.styleFrom(
+            backgroundColor: Color(0xFFF29F05), // background color
+            foregroundColor: Colors.white, // text color
           ),
         ),
       ),
+      home: HomeScreen(),
+      routes: {
+        '/scan': (context) => IngredientsScanScreen(cuisine: ''),
+      },
     );
   }
 }
